@@ -1,0 +1,26 @@
+#
+# CUPS MIME Conversions Configuration
+# Modernized and simplified for current CUPS implementations
+#
+# Format: source-type destination-type cost filter-program
+#
+
+# PDF Conversions
+application/pdf			application/postscript		25	pdftops
+application/pdf			application/vnd.cups-raster	100	pdftoraster
+application/pdf			image/urf			100	pdftoraster
+
+# Text and Document Conversions
+application/xhtml+xml		application/pdf			33	texttopdf
+application/vnd.cups-banner	application/pdf			33	bannertopdf
+
+# PostScript Processing
+application/pc-eps		application/pdf			200	pstopdf
+application/pc-eps		application/vnd.cups-postscript	250	pstops
+
+# AirPrint Support
+image/urf			application/pdf			100	pdftoraster
+
+# Optional AirPrint Output (requires rastertourf)
+#application/vnd.cups-raster	image/urf			100	rastertourf
+#application/vnd.cups-postscript	image/urf			250	pstoraster

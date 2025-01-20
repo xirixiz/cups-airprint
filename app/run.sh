@@ -10,6 +10,8 @@ CUPSADMIN="${CUPSADMIN:-admin}"
 # Set CUPSPASSWORD to the value of CUPSADMIN if not provided
 CUPSPASSWORD="${CUPSPASSWORD:-$CUPSADMIN}"
 
+CUPSMODE="${CUPSMODE:-cups}"
+
 # Check if the user exists in /etc/shadow
 if ! grep -qi "^${CUPSADMIN}:" /etc/shadow; then
     # Add user to the 'lpadmin' group without creating a home directory
@@ -56,7 +58,7 @@ done
     /usr/bin/inotifywait -m -e close_write,moved_to,create /etc/cups | while read -r directory events filename; do
         if [ "$filename" = "printers.conf" ]; then
             rm -rf /services/AirPrint-*.service
-            /app/airprint-generate.py -d /services
+            /app/airprint-generate.py --"$CUPSMODE" -d /services
             cp /etc/cups/printers.conf /config/printers.conf
             rsync -avh /services/ /etc/avahi/services/
             chmod 755 /var/cache/cups
