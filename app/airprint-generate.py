@@ -401,6 +401,8 @@ def main():
     parser.add_argument('-d', '--directory', help='Directory to create service files')
     parser.add_argument('-v', '--verbose', action="store_true",
                       help="Print debugging information to STDERR")
+    parser.add_argument('--debug', action="store_true",
+                      help="Print detailed debug information about dependencies")
     parser.add_argument('-p', '--prefix', default='AirPrint-',
                       help='Prefix for generated files')
     parser.add_argument('-a', '--admin', action="store_true", dest="adminurl",
@@ -408,16 +410,30 @@ def main():
 
     args = parser.parse_args()
 
-    if not ((args.cups and HAS_CUPS) or (args.avahi and HAS_AVAHI)):
-        print("Error: --cups and/or --dnssd must be specified, and CUPS and/or avahi must be installed.",
-              file=sys.stderr)
-        sys.exit(1)
+    # Debug information
+    if args.debug:
+        print("Debug Information:", file=sys.stderr)
+        print(f"Python version: {sys.version}", file=sys.stderr)
+        print(f"CUPS available: {HAS_CUPS}", file=sys.stderr)
+        print(f"Avahi available: {HAS_AVAHI}", file=sys.stderr)
+        print(f"Arguments: {args}", file=sys.stderr)
 
+    # Check if required modules are available based on requested mode
+    missing_deps = []
     if args.cups and not HAS_CUPS:
-        print("Warning: CUPS is not available. Ignoring --cups option.", file=sys.stderr)
+        missing_deps.append("CUPS (python3-cups)")
     if args.avahi and not HAS_AVAHI:
-        print("Warning: Module avahisearch is not available. Ignoring --dnssd option.",
-              file=sys.stderr)
+        missing_deps.append("Avahi (python3-avahi)")
+
+    if missing_deps:
+        print("Warning: Some requested features are not available:", file=sys.stderr)
+        for dep in missing_deps:
+            print(f"  - Missing {dep}", file=sys.stderr)
+        print("\nPlease install the missing dependencies to use all features.", file=sys.stderr)
+
+        # Only exit if ALL requested features are unavailable
+        if len(missing_deps) == sum([args.cups, args.avahi]):
+            sys.exit(1)
 
     if args.cups and HAS_CUPS:
         cups.setPasswordCB(getpass)
@@ -426,7 +442,7 @@ def main():
         host=args.host,
         user=args.user,
         port=args.port,
-        verbose=args.verbose,
+        verbose=args.verbose or args.debug,  # Enable verbose mode if debug is on
         directory=args.directory,
         prefix=args.prefix,
         adminurl=args.adminurl,
@@ -441,6 +457,3 @@ def main():
         print("NOTE: If printers found by DNS-SD do not resolve outside the local subnet,",
               "specify the printers' DNS domain with --dnsdomain or edit the generated",
               "<host-name> element to fit your network.", file=sys.stderr)
-
-if __name__ == '__main__':
-    main()

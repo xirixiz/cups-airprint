@@ -12,11 +12,19 @@ RUN apt-get update \
     cups-client \
     inotify-tools \
     avahi-daemon \
+    avahi-utils \
     avahi-discover \
     python3 \
     python3-dev \
     python3-pip \
+    python3-setuptools \
+    python3-wheel \
     python3-cups \
+    python3-avahi \
+    python3-lxml \
+    python3-dbus \
+    python3-gi \
+    python3-urllib3 \
     wget \
     rsync \
     foomatic-db-compressed-ppds \

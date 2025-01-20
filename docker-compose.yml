@@ -8,6 +8,7 @@ services:
     devices:
       - /dev/bus/usb:/dev/bus/usb
     environment:
+      #DEBUG: 1
       CUPSADMIN: "admin"
       CUPSPASSWORD: "admin"
       CUPSMODE: "dnssd"
