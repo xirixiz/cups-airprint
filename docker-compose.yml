@@ -1,7 +1,7 @@
 services:
-  airprint:
-    container_name: synology-airprint
-    image: synology-airprint:latest
+  cups-airprint:
+    container_name: cups-airprint
+    image: cups-airprint:latest
     build: .
     restart: always
     network_mode: "host"
@@ -10,6 +10,7 @@ services:
     environment:
       CUPSADMIN: "admin"
       CUPSPASSWORD: "admin"
+      CUPSMODE: "dnssd"
     volumes:
       - "/volume1/onedrive/smarthome/data/cups/services:/services"
       - "/volume1/onedrive/smarthome/data/cups/config:/config"    
