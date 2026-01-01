@@ -297,13 +297,34 @@ class AirPrintGenerator:
         return printers
 
     def _collect_avahi_printers(self) -> List[PrinterInfo]:
-        """Collect printer information using DNS-SD/Avahi"""
         if not self.use_avahi:
             return []
-
-        self._log('Collecting networked printers using DNS-SD')
+    
+        self._log("Collecting networked printers using DNS SD")
+    
         finder = avahisearch.AvahiPrinterFinder(verbose=self.verbose)
-        return [PrinterInfo(**{**p, 'source': 'DNS-SD'}) for p in finder.Search()]
+        printers: List[PrinterInfo] = []
+    
+        for p in finder.search():
+            txt = dict(p.txt)
+    
+            rp = txt.get("rp")
+            if not rp:
+                rp = "printers/" + re.sub(r"\s+", "_", p.name)
+    
+            printers.append(
+                PrinterInfo(
+                    name=p.name,
+                    host=p.host,
+                    address=p.address,
+                    port=p.port,
+                    domain=p.domain or "local",
+                    txt=txt,
+                    source="DNS SD",
+                )
+            )
+    
+        return printers
 
     def _create_service_file(self, printer: PrinterInfo) -> None:
         """Generate service file for a printer"""
