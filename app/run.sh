@@ -47,8 +47,8 @@ setup_cups_admin() {
 setup_directories() {
     log "Setting up directories and symlinks"
     mkdir -p "$CONFIG_DIR/ppd" "$SERVICES_DIR"
-    rm -rf "$AVAHI_SERVICES_DIR"/* "$CUPS_DIR/ppd"
-    ln -sf "$CONFIG_DIR/ppd" "$CUPS_DIR"
+    ln -sfn "$CONFIG_DIR/ppd" "$CUPS_DIR/ppd"
+    rm -f "$AVAHI_SERVICES_DIR"/*.service 2>/dev/null || true
 }
 
 # Function to setup configuration files
