@@ -1,4 +1,5 @@
-FROM debian:trixie-slim
+# ARG ARCH=amd64
+FROM amd64/debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -8,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     cups \
     cups-bsd \
+    cups-filters \
     cups-client \
     cups-filters \
     ghostscript \
@@ -22,8 +24,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-avahi \
     ipp-usb \
     printer-driver-all \
-    foomatic-db-compressed-ppds \
-  && rm -rf /var/lib/apt/lists/*
+    openprinting-ppds \
+    hpijs-ppds \
+    hp-ppd \
+    hplip \
+    printer-driver-splix \
+    printer-driver-gutenprint \
+    gutenprint-doc \
+    gutenprint-locales \
+    libgutenprint9 \
+    libgutenprint-doc \
+    ghostscript \
+    foomatic-db-compressed-ppds
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 VOLUME ["/config", "/services"]
 EXPOSE 631
