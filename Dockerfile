@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cups-client \
     cups-filters \
     ghostscript \
-    foomatic-filters \
     avahi-daemon \
     avahi-utils \
     dbus \
@@ -23,8 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-avahi \
     ipp-usb \
     printer-driver-all \
+    foomatic-db-compressed-ppds \
   && rm -rf /var/lib/apt/lists/*
-  
+
 VOLUME ["/config", "/services"]
 EXPOSE 631
 
@@ -32,3 +32,4 @@ COPY app /app
 RUN chmod +x /app/*
 
 CMD ["/app/run.sh"]
+

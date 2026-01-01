@@ -1,212 +1,275 @@
 #!/bin/bash
-
-# Strict error handling and debugging
 set -euo pipefail
 [ "${DEBUG:-0}" = "1" ] && set -x
 
-# Configuration
-readonly CONFIG_DIR="/config"
-readonly SERVICES_DIR="/services"
-readonly AVAHI_SERVICES_DIR="/etc/avahi/services"
-readonly CUPS_DIR="/etc/cups"
-readonly APP_DIR="/app"
-readonly CACHE_DIR="/var/cache/cups"
-readonly AVAHI_PID="/run/avahi-daemon/pid"
+# -----------------------------
+# Paths
+# -----------------------------
+CONFIG_DIR="/config"
+SERVICES_DIR="/services"
+AVAHI_SERVICES_DIR="/etc/avahi/services"
+CUPS_DIR="/etc/cups"
+APP_DIR="/app"
+CACHE_DIR="/var/cache/cups"
 
-# Default values for environment variables
+DBUS_RUN_DIR="/run/dbus"
+DBUS_SOCKET="${DBUS_RUN_DIR}/system_bus_socket"
+
+AVAHI_RUN_DIR="/run/avahi-daemon"
+
+# -----------------------------
+# Environment defaults
+# -----------------------------
 CUPSADMIN="${CUPSADMIN:-admin}"
 CUPSPASSWORD="${CUPSPASSWORD:-$CUPSADMIN}"
-CUPSMODE="${CUPSMODE:-cups}"
+CUPSMODE="${CUPSMODE:-cups}"    # cups | dnssd
+DEBUG="${DEBUG:-0}"
 
-# Function to log messages
+# -----------------------------
+# Helpers
+# -----------------------------
 log() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >&2
+  echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >&2
 }
 
-# Function to handle errors
-error_handler() {
-    local line_no=$1
-    local command=$2
-    local ret_code=$3
-    log "Error occurred in command '$command' (line $line_no, exit code $ret_code)"
-    exit $ret_code
+cleanup() {
+  log "Stopping services"
+  pkill -TERM cupsd 2>/dev/null || true
+  pkill -TERM avahi-daemon 2>/dev/null || true
+  pkill -TERM dbus-daemon 2>/dev/null || true
+  exit 0
+}
+trap cleanup INT TERM
+
+# -----------------------------
+# Validation
+# -----------------------------
+validate_env() {
+  case "$CUPSMODE" in
+    cups|dnssd) ;;
+    *)
+      log "Invalid CUPSMODE='$CUPSMODE' (must be 'cups' or 'dnssd')"
+      exit 2
+      ;;
+  esac
 }
 
-trap 'error_handler ${LINENO} "${BASH_COMMAND}" $?' ERR
-
-# Function to setup CUPS admin user
+# -----------------------------
+# CUPS setup
+# -----------------------------
 setup_cups_admin() {
-    if ! grep -qi "^${CUPSADMIN}:" /etc/shadow; then
-        log "Creating CUPS admin user: $CUPSADMIN"
-        useradd -r -G lpadmin -M "$CUPSADMIN"
-        echo "$CUPSADMIN:$CUPSPASSWORD" | chpasswd
-    fi
+  if ! id -u "$CUPSADMIN" >/dev/null 2>&1; then
+    log "Creating CUPS admin user: $CUPSADMIN"
+    useradd -r -G lpadmin -M "$CUPSADMIN"
+    echo "$CUPSADMIN:$CUPSPASSWORD" | chpasswd
+  fi
 }
 
-# Function to setup directories and symlinks
 setup_directories() {
-    log "Setting up directories and symlinks"
-    mkdir -p "$CONFIG_DIR/ppd" "$SERVICES_DIR"
-    ln -sfn "$CONFIG_DIR/ppd" "$CUPS_DIR/ppd"
-    rm -f "$AVAHI_SERVICES_DIR"/*.service 2>/dev/null || true
+  log "Setting up directories"
+
+  mkdir -p \
+    "$CONFIG_DIR/ppd" \
+    "$SERVICES_DIR" \
+    "$AVAHI_SERVICES_DIR" \
+    "$CACHE_DIR" \
+    "$DBUS_RUN_DIR" \
+    "$AVAHI_RUN_DIR"
+
+  # Persist printers and PPDs
+  touch "$CONFIG_DIR/printers.conf"
+  ln -sfn "$CONFIG_DIR/printers.conf" "$CUPS_DIR/printers.conf"
+  ln -sfn "$CONFIG_DIR/ppd" "$CUPS_DIR/ppd"
+
+  # Optional override
+  if [ -f "$CONFIG_DIR/cupsd.conf" ]; then
+    ln -sfn "$CONFIG_DIR/cupsd.conf" "$CUPS_DIR/cupsd.conf"
+  fi
 }
 
-# Function to setup configuration files
-setup_config_files() {
-    log "Setting up configuration files"
+# -----------------------------
+# DBus
+# -----------------------------
+start_dbus_if_needed() {
+  mkdir -p "$DBUS_RUN_DIR"
 
-    # Initialize printers.conf if it doesn't exist
-    touch "$CONFIG_DIR/printers.conf"
-    cp "$CONFIG_DIR/printers.conf" "$CUPS_DIR/printers.conf"
-
-    # Copy cupsd.conf if it exists
-    if [ -f "$CONFIG_DIR/cupsd.conf" ]; then
-        cp "$CONFIG_DIR/cupsd.conf" "$CUPS_DIR/cupsd.conf"
+  # If socket exists, verify bus is responsive
+  if [ -S "$DBUS_SOCKET" ]; then
+    if dbus-send --system --dest=org.freedesktop.DBus \
+        --type=method_call / org.freedesktop.DBus.ListNames \
+        >/dev/null 2>&1; then
+      log "dbus already running and responsive"
+      return 0
     fi
 
-    # Copy existing service files
-    if compgen -G "$SERVICES_DIR/*.service" > /dev/null; then
-        cp -f "$SERVICES_DIR"/*.service "$AVAHI_SERVICES_DIR"/
+    log "Stale dbus socket found, removing"
+    rm -f "$DBUS_SOCKET"
+  fi
+
+  log "Starting dbus-daemon"
+  dbus-daemon --system --fork
+
+  local timeout=10
+  local i=0
+  while [ ! -S "$DBUS_SOCKET" ]; do
+    if [ "$i" -ge "$timeout" ]; then
+      log "ERROR: dbus socket did not appear"
+      ls -la "$DBUS_RUN_DIR" || true
+      return 1
     fi
+    sleep 1
+    i=$((i + 1))
+  done
+
+  # Final sanity check
+  if ! dbus-send --system --dest=org.freedesktop.DBus \
+      --type=method_call / org.freedesktop.DBus.ListNames \
+      >/dev/null 2>&1; then
+    log "ERROR: dbus started but not responding"
+    return 1
+  fi
+
+  log "dbus ready"
 }
 
-# Function to setup Avahi
-setup_avahi() {
-    log "Setting up Avahi daemon"
-    mkdir -p /run/avahi-daemon
-    chown avahi:avahi /run/avahi-daemon
-    chown -R avahi:avahi /etc/avahi
+# -----------------------------
+# Avahi
+# -----------------------------
+ensure_avahi_user() {
+  getent group avahi >/dev/null || groupadd -r avahi
+  id -u avahi >/dev/null 2>&1 || useradd -r -g avahi -M -s /usr/sbin/nologin avahi
 }
 
-# Function to start Avahi daemon
+ensure_avahi_conf() {
+  if [ ! -f /etc/avahi/avahi-daemon.conf ]; then
+    log "Creating minimal avahi-daemon.conf"
+    mkdir -p /etc/avahi
+    cat > /etc/avahi/avahi-daemon.conf <<'EOF'
+[server]
+use-ipv4=yes
+use-ipv6=no
+
+[publish]
+publish-addresses=yes
+publish-workstation=no
+
+[reflector]
+enable-reflector=no
+EOF
+  fi
+}
+
 start_avahi() {
-    log "Starting Avahi daemon"
-    [ "${DEBUG:-0}" = "1" ] && log "Running avahi-daemon --daemonize"
+  log "Starting Avahi daemon"
 
-    # Kill any existing Avahi processes
-    pkill avahi-daemon || true
+  [ -S "$DBUS_SOCKET" ] || {
+    log "ERROR: dbus socket missing, Avahi cannot start"
+    return 1
+  }
 
-    # Remove existing PID file if it exists
-    rm -f "$AVAHI_PID"
+  ensure_avahi_user
+  ensure_avahi_conf
 
-    # Start Avahi daemon with error handling
-    if ! /usr/sbin/avahi-daemon --daemonize; then
-        log "Failed to start Avahi daemon"
-        if [ "${DEBUG:-0}" = "1" ]; then
-            log "Avahi daemon status:"
-            systemctl status avahi-daemon || true
-            log "Avahi daemon logs:"
-            journalctl -u avahi-daemon -n 50 || true
-        fi
-        return 1
+  mkdir -p "$AVAHI_RUN_DIR" /etc/avahi/services
+  chown -R avahi:avahi "$AVAHI_RUN_DIR" /etc/avahi 2>/dev/null || true
+
+  pkill -TERM avahi-daemon 2>/dev/null || true
+  sleep 1
+
+  # DEBUG: foreground probe to show real error
+  if [ "$DEBUG" = "1" ]; then
+    log "DEBUG=1: running avahi-daemon in foreground"
+    timeout 5 /usr/sbin/avahi-daemon \
+      --debug --no-drop-root --no-chroot || true
+    pkill -TERM avahi-daemon 2>/dev/null || true
+    sleep 1
+  fi
+
+  /usr/sbin/avahi-daemon --daemonize --no-drop-root --no-chroot
+
+  local timeout=10
+  local i=0
+  while ! pgrep -x avahi-daemon >/dev/null 2>&1; do
+    if [ "$i" -ge "$timeout" ]; then
+      log "ERROR: avahi-daemon exited immediately"
+      ps aux | grep -E 'avahi|dbus' || true
+      return 1
     fi
+    sleep 1
+    i=$((i + 1))
+  done
 
-    local timeout=30
-    local counter=0
-    while [ ! -f "$AVAHI_PID" ]; do
-        if [ $counter -ge $timeout ]; then
-            log "Error: Avahi daemon failed to start within $timeout seconds"
-            if [ "${DEBUG:-0}" = "1" ]; then
-                log "Checking Avahi process status:"
-                ps aux | grep avahi
-                log "Checking /run/avahi-daemon directory:"
-                ls -la /run/avahi-daemon/
-            fi
-            return 1
-        fi
-        log "Waiting for Avahi daemon to start... ($counter/$timeout)"
-        sleep 1
-        ((counter++))
-    done
-
-    # Verify the daemon is actually running
-    if ! pgrep -x avahi-daemon > /dev/null; then
-        log "Error: Avahi daemon process not found after startup"
-        return 1
-    fi
-
-    # Give the daemon a moment to initialize
-    sleep 2
-
-    [ "${DEBUG:-0}" = "1" ] && log "Avahi daemon started successfully"
-    return 0
+  log "Avahi started"
 }
 
-# Function to handle CUPS configuration changes
-handle_cups_changes() {
-    local directory=$1
-    local events=$2
-    local filename=$3
-
-    case "$filename" in
-        "printers.conf")
-            log "Printer configuration changed, regenerating AirPrint services"
-            rm -rf "$SERVICES_DIR"/AirPrint-*.service
-            if [ "$CUPSMODE" = "cups" ]; then
-                [ "${DEBUG:-0}" = "1" ] && log "Running airprint-generate.py with --cups"
-                "$APP_DIR/airprint-generate.py" --cups -d "$SERVICES_DIR" $([ "${DEBUG:-0}" = "1" ] && echo "--debug")
-            elif [ "$CUPSMODE" = "dnssd" ]; then
-                [ "${DEBUG:-0}" = "1" ] && log "Running airprint-generate.py with --dnssd"
-                "$APP_DIR/airprint-generate.py" --dnssd -d "$SERVICES_DIR" $([ "${DEBUG:-0}" = "1" ] && echo "--debug")
-            else
-                echo "Error: Invalid CUPSMODE value: $CUPSMODE (should be 'cups' or 'dnssd')" >&2
-                return 1
-            fi
-            cp "$CUPS_DIR/printers.conf" "$CONFIG_DIR/printers.conf"
-            rsync -a --delete "$SERVICES_DIR/" "$AVAHI_SERVICES_DIR/"
-            chmod 755 "$CACHE_DIR"
-            rm -rf "$CACHE_DIR"/*
-            ;;
-        "cupsd.conf")
-            log "CUPS daemon configuration changed"
-            cp "$CUPS_DIR/cupsd.conf" "$CONFIG_DIR/cupsd.conf"
-            ;;
-    esac
+# -----------------------------
+# AirPrint services
+# -----------------------------
+sync_services_to_avahi() {
+  rm -f "$AVAHI_SERVICES_DIR"/*.service 2>/dev/null || true
+  if compgen -G "$SERVICES_DIR"/*.service >/dev/null; then
+    cp -f "$SERVICES_DIR"/*.service "$AVAHI_SERVICES_DIR"/
+  fi
+  avahi-daemon --reload 2>/dev/null || true
 }
 
-# Function to monitor CUPS configuration changes
+regenerate_airprint_services() {
+  rm -f "$SERVICES_DIR"/AirPrint-*.service 2>/dev/null || true
+
+  if [ "$CUPSMODE" = "cups" ]; then
+    "$APP_DIR/airprint-generate.py" --cups -d "$SERVICES_DIR" \
+      $([ "$DEBUG" = "1" ] && echo "--debug")
+  else
+    "$APP_DIR/airprint-generate.py" --dnssd -d "$SERVICES_DIR" \
+      $([ "$DEBUG" = "1" ] && echo "--debug")
+  fi
+
+  sync_services_to_avahi
+  rm -rf "$CACHE_DIR"/* 2>/dev/null || true
+}
+
 monitor_cups_changes() {
-    log "Starting CUPS configuration monitor"
-    /usr/bin/inotifywait -m -e close_write,moved_to,create "$CUPS_DIR" | while read -r directory events filename; do
-        handle_cups_changes "$directory" "$events" "$filename"
-    done
+  log "Monitoring CUPS configuration"
+  inotifywait -m -e close_write,moved_to,create "$CUPS_DIR" |
+  while read -r _dir _events file; do
+    case "$file" in
+      printers.conf)
+        log "printers.conf changed"
+        regenerate_airprint_services || true
+        ;;
+      cupsd.conf)
+        log "cupsd.conf changed"
+        ;;
+    esac
+  done
 }
 
-# Main execution
+# -----------------------------
+# Main
+# -----------------------------
 main() {
-    [ "${DEBUG:-0}" = "1" ] && log "Starting main execution with DEBUG=1"
-    [ "${DEBUG:-0}" = "1" ] && log "CUPSMODE=$CUPSMODE"
-    [ "${DEBUG:-0}" = "1" ] && log "CUPSADMIN=$CUPSADMIN"
+  validate_env
+  setup_cups_admin
+  setup_directories
+  start_dbus_if_needed
 
-    log "Starting CUPS configuration"
-    setup_cups_admin
-    setup_directories
-    setup_config_files
-    setup_avahi
+  local tries=0
+  until start_avahi; do
+    tries=$((tries + 1))
+    [ "$tries" -ge 3 ] && {
+      log "Avahi failed after 3 attempts"
+      exit 1
+    }
+    log "Retrying Avahi startup ($tries/3)"
+    sleep 2
+  done
 
-    # Try to start Avahi with retries
-    local max_retries=3
-    local retry_count=0
-    while [ $retry_count -lt $max_retries ]; do
-        if start_avahi; then
-            break
-        fi
-        retry_count=$((retry_count + 1))
-        if [ $retry_count -lt $max_retries ]; then
-            log "Retrying Avahi startup ($retry_count/$max_retries)..."
-            sleep 5
-        else
-            log "Failed to start Avahi daemon after $max_retries attempts"
-            exit 1
-        fi
-    done
+  sync_services_to_avahi
+  monitor_cups_changes &
 
-    monitor_cups_changes &
-
-    log "Starting CUPS daemon"
-    [ "${DEBUG:-0}" = "1" ] && log "Running cupsd -f"
-    exec /usr/sbin/cupsd -f
+  log "Starting CUPS daemon"
+  exec /usr/sbin/cupsd -f
 }
 
-# Start the script
 main
+
