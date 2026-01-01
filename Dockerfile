@@ -1,5 +1,5 @@
 # ARG ARCH=amd64
-FROM amd64/debian:bookworm-slim
+FROM amd64/debian:trixie-slim
 
 # Install necessary packages, avoid installing unnecessary recommendations, and clean up after
 RUN apt-get update \
@@ -8,7 +8,6 @@ RUN apt-get update \
     cups \
     cups-bsd \
     cups-filters \
-    cups-pdf \
     cups-client \
     inotify-tools \
     avahi-daemon \
@@ -40,6 +39,7 @@ RUN apt-get update \
     libgutenprint9 \
     libgutenprint-doc \
     ghostscript \
+	foomatic-filters\
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
