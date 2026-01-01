@@ -39,6 +39,7 @@ RUN apt-get update \
     libgutenprint9 \
     libgutenprint-doc \
     ghostscript \
+    foomatic-db-compressed-ppds
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
