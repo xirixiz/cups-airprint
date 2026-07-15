@@ -5,8 +5,6 @@ services:
     build: .
     restart: always
     network_mode: host
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
     environment:
       DEBUG: 1
       CUPSADMIN: "admin"
@@ -15,7 +13,6 @@ services:
     volumes:
       - "/volume1/onedrive/smarthome/data/cups/services:/services"
       - "/volume1/onedrive/smarthome/data/cups/config:/config"    
-      - "/var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket"
       - "/etc/localtime:/etc/localtime:ro"
     dns:
       - 10.79.10.1
