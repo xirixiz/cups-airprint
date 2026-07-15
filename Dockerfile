@@ -1,5 +1,4 @@
-# ARG ARCH=amd64
-FROM amd64/debian:trixie-slim
+FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -35,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgutenprint9 \
     libgutenprint-doc \
     ghostscript \
-    foomatic-db-compressed-ppds
+    foomatic-db-compressed-ppds \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
