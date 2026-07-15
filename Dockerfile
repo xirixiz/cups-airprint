@@ -5,6 +5,7 @@ ENV LANG=C.UTF-8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libnss-mdns \
     curl \
     cups \
     cups-bsd \

@@ -4,14 +4,14 @@ services:
     image: cups-airprint:latest
     build: .
     restart: always
-    network_mode: "host"
+    network_mode: host
     devices:
       - /dev/bus/usb:/dev/bus/usb
     environment:
-      #DEBUG: 1
+      DEBUG: 1
       CUPSADMIN: "admin"
       CUPSPASSWORD: "admin"
-      CUPSMODE: "dnssd"
+      CUPSMODE: "cups"
     volumes:
       - "/volume1/onedrive/smarthome/data/cups/services:/services"
       - "/volume1/onedrive/smarthome/data/cups/config:/config"    
